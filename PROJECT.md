@@ -4,7 +4,7 @@
 
 IT administrators managing Microsoft Intune tenants lack a simple way to generate comprehensive, human-readable documentation of their entire tenant configuration. Manually documenting device profiles, compliance policies, apps, scripts, and enrollment settings across Windows, macOS, iOS, and Android is time-consuming, error-prone, and quickly becomes outdated.
 
-## Goal
+## Goal 
 
 Users will be able to:
 
