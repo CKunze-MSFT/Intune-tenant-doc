@@ -18,7 +18,8 @@
       Windows.md, macOS.md, iOS.md, Android.md, Cross-platform.md
     Plus a combined Full-Tenant-Documentation.md with all content and a table of contents.
 
-    Script content and setting values are always exported for completeness.
+    Setting values are always exported for completeness. Script content can be
+    embedded in the Markdown output with -EmbedScripts.
 
 .PARAMETER OutputPath
     Directory where MD files will be written. Defaults to ./IntuneExport-<date>.
@@ -26,15 +27,20 @@
 .PARAMETER TenantId
     Optional tenant ID to connect to. If omitted, the login prompt determines the tenant.
 
+.PARAMETER EmbedScripts
+    Includes full script bodies and script analysis in the Markdown output.
+
 .EXAMPLE
     .\Export-IntuneTenantDoc.ps1
     .\Export-IntuneTenantDoc.ps1 -TenantId "contoso.onmicrosoft.com" -OutputPath ./contoso-export
+    .\Export-IntuneTenantDoc.ps1 -EmbedScripts
 #>
 
 [CmdletBinding()]
 param(
     [string]$OutputPath,
-    [string]$TenantId
+    [string]$TenantId,
+    [switch]$EmbedScripts
 )
 
 $ErrorActionPreference = "Stop"
@@ -359,6 +365,19 @@ function Get-ScriptSummary {
     return ($summary -join "`n")
 }
 
+function Convert-GraphScriptContent {
+    param([string]$ScriptContent)
+
+    if (-not $ScriptContent) { return "" }
+
+    try {
+        return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($ScriptContent))
+    }
+    catch {
+        return $ScriptContent
+    }
+}
+
 # ---------------------------------------------------------------------------- #
 # Data Collection Functions
 # ---------------------------------------------------------------------------- #
@@ -519,7 +538,6 @@ function Export-AppProtectionPolicies {
 function Export-AppConfigPolicies {
     Write-Status "Collecting app configuration policies..." "Info"
 
-    $managed = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/v1.0/deviceAppManagement/managedAppPolicies" -Section "AppConfigPolicies"
     $targeted = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/beta/deviceAppManagement/mobileAppConfigurations" -Section "MobileAppConfigurations"
 
     if ($targeted) {
@@ -545,6 +563,11 @@ function Export-Apps {
 
             $platform = Get-PlatformFromAppType $app.'@odata.type'
             $assignments = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/v1.0/deviceAppManagement/mobileApps/$($app.id)/assignments" -Section "App-Assignments"
+            $extraProperties = $null
+            $preInstallScriptContent = ""
+            $preInstallScriptSummary = ""
+            $postInstallScriptContent = ""
+            $postInstallScriptSummary = ""
 
             # Parse install intent from assignments
             $installIntents = @()
@@ -558,15 +581,66 @@ function Export-Apps {
                 }
             }
 
+            if (($app.'@odata.type' -replace '#microsoft.graph.', '') -eq 'macOSPkgApp') {
+                $detail = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/$($app.id)" -Section "macOSPkgApp-Detail"
+                if ($detail) {
+                    $includedApps = @()
+                    if ($detail.includedApps) {
+                        foreach ($includedApp in $detail.includedApps) {
+                            $includedApps += "$($includedApp.bundleId) ($($includedApp.bundleVersion))"
+                        }
+                    }
+
+                    $minimumOs = @()
+                    if ($detail.minimumSupportedOperatingSystem) {
+                        foreach ($property in $detail.minimumSupportedOperatingSystem.PSObject.Properties) {
+                            if ($property.Value -eq $true) {
+                                $minimumOs += ($property.Name -replace '^v', '' -replace '_', '.')
+                            }
+                        }
+                    }
+
+                    if ($detail.preInstallScript -and $detail.preInstallScript.scriptContent) {
+                        $preInstallScriptContent = Convert-GraphScriptContent -ScriptContent $detail.preInstallScript.scriptContent
+                        if ($preInstallScriptContent) {
+                            $preInstallScriptSummary = Get-ScriptSummary -ScriptText $preInstallScriptContent -ScriptType "Shell"
+                        }
+                    }
+
+                    if ($detail.postInstallScript -and $detail.postInstallScript.scriptContent) {
+                        $postInstallScriptContent = Convert-GraphScriptContent -ScriptContent $detail.postInstallScript.scriptContent
+                        if ($postInstallScriptContent) {
+                            $postInstallScriptSummary = Get-ScriptSummary -ScriptText $postInstallScriptContent -ScriptType "Shell"
+                        }
+                    }
+
+                    $extraProperties = [ordered]@{
+                        "Package File"               = $detail.fileName
+                        "Bundle ID"                  = $detail.primaryBundleId
+                        "Bundle Version"             = $detail.primaryBundleVersion
+                        "Ignore Version Detection"   = $detail.ignoreVersionDetection
+                        "Minimum Supported macOS"    = if ($minimumOs.Count -gt 0) { $minimumOs -join ', ' } else { $null }
+                        "Included Apps"              = if ($includedApps.Count -gt 0) { $includedApps -join '; ' } else { $null }
+                        "Has Pre-install Script"     = [bool]$preInstallScriptContent
+                        "Has Post-install Script"    = [bool]$postInstallScriptContent
+                    }
+                }
+            }
+
             Add-ToPlatform -Platform $platform -Category "Applications" -Item @{
-                Name           = $app.displayName
-                Type           = ($app.'@odata.type' -replace '#microsoft.graph.', '')
-                Publisher      = $app.publisher
-                Created        = $app.createdDateTime
-                Modified       = $app.lastModifiedDateTime
-                Assignments    = $assignments
-                InstallIntents = $installIntents
-                Id             = $app.id
+                Name                     = $app.displayName
+                Type                     = ($app.'@odata.type' -replace '#microsoft.graph.', '')
+                Publisher                = $app.publisher
+                Created                  = $app.createdDateTime
+                Modified                 = $app.lastModifiedDateTime
+                Assignments              = $assignments
+                InstallIntents           = $installIntents
+                PreInstallScriptContent  = $preInstallScriptContent
+                PreInstallScriptSummary  = $preInstallScriptSummary
+                PostInstallScriptContent = $postInstallScriptContent
+                PostInstallScriptSummary = $postInstallScriptSummary
+                ExtraProperties          = $extraProperties
+                Id                       = $app.id
             }
         }
     }
@@ -751,10 +825,6 @@ function Export-EnrollmentConfig {
 function Export-UpdatePolicies {
     Write-Status "Collecting update policies..." "Info"
 
-    # Windows Update Rings
-    $updateRings = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/v1.0/deviceManagement/deviceConfigurations?`$filter=isof('microsoft.graph.windowsUpdateForBusinessConfiguration')" -Section "WindowsUpdateRings"
-    # Note: Update rings are also captured via deviceConfigurations, but we tag them separately
-
     # Feature Update Profiles (beta)
     $featureUpdates = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsFeatureUpdateProfiles" -Section "FeatureUpdateProfiles"
     if ($featureUpdates) {
@@ -785,9 +855,7 @@ function Export-UpdatePolicies {
         }
     }
 
-    # Apple Software Update policies
-    $appleUpdates = Invoke-GraphRequestSafe -Uri "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations?`$filter=isof('microsoft.graph.iosUpdateConfiguration')" -Section "iOSUpdatePolicies"
-    # These are also captured in deviceConfigurations — tagged via odata.type
+    # Apple Software Update policies are captured via deviceConfigurations and classified by odata.type.
 }
 
 function Export-ConditionalAccess {
@@ -912,8 +980,7 @@ function Export-AdminTemplates {
                     if ($presValues -and $presValues.Count -gt 0) {
                         $vals = @()
                         foreach ($pv in $presValues) {
-                            $pvType = $pv.'@odata.type' -replace '#microsoft.graph.groupPolicy', ''
-                            $pvVal = if ($pv.value -ne $null) { "$($pv.value)" }
+                            $pvVal = if ($null -ne $pv.value) { "$($pv.value)" }
                                      elseif ($pv.values) { ($pv.values | ForEach-Object { "$($_.name)=$($_.value)" }) -join "; " }
                                      else { "(set)" }
                             $vals += $pvVal
@@ -1279,7 +1346,7 @@ function Export-DeviceCleanupSettings {
 # Markdown Rendering
 # ---------------------------------------------------------------------------- #
 
-function Render-PlatformMarkdown {
+function Get-PlatformMarkdown {
     param(
         [string]$Platform,
         [array]$Items
@@ -1401,20 +1468,54 @@ function Render-PlatformMarkdown {
             }
 
             # Script summary and content
-            if ($d.ScriptSummary -and $d.ScriptSummary -ne "") {
+            if ($EmbedScripts -and $d.ScriptSummary -and $d.ScriptSummary -ne "") {
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine("**Script Analysis:**")
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine($d.ScriptSummary)
             }
 
-            if ($d.ScriptContent -and $d.ScriptContent -ne "") {
+            if ($EmbedScripts -and $d.ScriptContent -and $d.ScriptContent -ne "") {
                 $langHint = if ($d.Type -match "Shell") { "bash" } else { "powershell" }
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine("<details><summary>Full Script Content</summary>")
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine("``````$langHint")
                 [void]$sb.AppendLine($d.ScriptContent)
+                [void]$sb.AppendLine("``````")
+                [void]$sb.AppendLine("</details>")
+            }
+
+            if ($EmbedScripts -and $d.PreInstallScriptSummary -and $d.PreInstallScriptSummary -ne "") {
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("**Pre-install Script Analysis:**")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine($d.PreInstallScriptSummary)
+            }
+
+            if ($EmbedScripts -and $d.PreInstallScriptContent -and $d.PreInstallScriptContent -ne "") {
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("<details><summary>Pre-install Script</summary>")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("``````bash")
+                [void]$sb.AppendLine($d.PreInstallScriptContent)
+                [void]$sb.AppendLine("``````")
+                [void]$sb.AppendLine("</details>")
+            }
+
+            if ($EmbedScripts -and $d.PostInstallScriptSummary -and $d.PostInstallScriptSummary -ne "") {
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("**Post-install Script Analysis:**")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine($d.PostInstallScriptSummary)
+            }
+
+            if ($EmbedScripts -and $d.PostInstallScriptContent -and $d.PostInstallScriptContent -ne "") {
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("<details><summary>Post-install Script</summary>")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("``````bash")
+                [void]$sb.AppendLine($d.PostInstallScriptContent)
                 [void]$sb.AppendLine("``````")
                 [void]$sb.AppendLine("</details>")
             }
@@ -1551,7 +1652,7 @@ try {
             continue
         }
         $totalItems += $items.Count
-        $md = Render-PlatformMarkdown -Platform $platform -Items $items
+        $md = Get-PlatformMarkdown -Platform $platform -Items $items
         $filePath = Join-Path $OutputPath $platformFiles[$platform]
         $md | Out-File -LiteralPath $filePath -Encoding utf8 -Force
         Write-Status "$platform — $($items.Count) items -> $($platformFiles[$platform])" "Success"
@@ -1562,7 +1663,7 @@ try {
     $unclassified = $PLATFORM_MAP["Unclassified"]
     if ($unclassified -and $unclassified.Count -gt 0) {
         $totalItems += $unclassified.Count
-        $md = Render-PlatformMarkdown -Platform "Unclassified" -Items $unclassified
+        $md = Get-PlatformMarkdown -Platform "Unclassified" -Items $unclassified
         $filePath = Join-Path $OutputPath "Unclassified.md"
         $md | Out-File -LiteralPath $filePath -Encoding utf8 -Force
         Write-Status "Unclassified — $($unclassified.Count) items -> Unclassified.md" "Warning"

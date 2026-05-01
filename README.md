@@ -6,6 +6,7 @@ A PowerShell script that connects to any Intune tenant via Microsoft Graph and g
 
 - **PowerShell 7+** (recommended) or Windows PowerShell 5.1
 - **Microsoft.Graph PowerShell module:**
+
   ```powershell
   Install-Module Microsoft.Graph -Scope CurrentUser
   ```
@@ -15,6 +16,9 @@ A PowerShell script that connects to any Intune tenant via Microsoft Graph and g
 ```powershell
 # Basic export (interactive browser login)
 .\Export-IntuneTenantDoc.ps1
+
+# Export and embed full script content in the Markdown files
+.\Export-IntuneTenantDoc.ps1 -EmbedScripts
 
 # Export a specific tenant
 .\Export-IntuneTenantDoc.ps1 -TenantId "contoso.onmicrosoft.com"
@@ -26,18 +30,27 @@ A PowerShell script that connects to any Intune tenant via Microsoft Graph and g
 ## Step-by-Step Usage
 
 1. **Install the Microsoft Graph module** (if not already installed):
+
    ```powershell
    Install-Module Microsoft.Graph -Scope CurrentUser
    ```
 
 2. **Navigate to the script directory**:
+
    ```powershell
    cd /path/to/Intune-tenant-doc
    ```
 
 3. **Run the script**:
+
    ```powershell
    .\Export-IntuneTenantDoc.ps1
+   ```
+
+   To include full script bodies and generated script analysis in the Markdown output:
+
+   ```powershell
+   .\Export-IntuneTenantDoc.ps1 -EmbedScripts
    ```
 
 4. **Sign in** when the browser window opens — use an account with appropriate permissions (see [Account Requirements](#account-requirements))
@@ -51,7 +64,7 @@ A PowerShell script that connects to any Intune tenant via Microsoft Graph and g
 Creates a folder (default: `IntuneExport-YYYY-MM-DD/`) containing:
 
 | File | Contents |
-|------|----------|
+| ------ | ---------- |
 | `Windows.md` | Windows device configs, compliance, apps, Autopilot, admin templates, update rings, scripts, remediations, driver updates, custom ADMX |
 | `macOS.md` | macOS device configs, compliance, apps, shell scripts, ADE/DEP enrollment |
 | `iOS.md` | iOS/iPadOS device configs, compliance, MAM, VPP apps, ADE enrollment |
@@ -64,7 +77,7 @@ Creates a folder (default: `IntuneExport-YYYY-MM-DD/`) containing:
 ## What It Documents
 
 | Category | API Source | Notes |
-|----------|-----------|-------|
+| ---------- | ----------- | ------- |
 | Device Configuration Profiles | v1.0 | Template-based legacy profiles with all setting values |
 | Settings Catalog Policies | beta | Modern policy engine with all configured settings |
 | Administrative Templates | beta | GPO-style Edge/Office/OneDrive policies with full setting values |
@@ -74,7 +87,7 @@ Creates a folder (default: `IntuneExport-YYYY-MM-DD/`) containing:
 | App Configuration Policies | beta | Managed device + managed app configs |
 | Applications | v1.0 | All app types with install intents and assignments |
 | Endpoint Security / Baselines | beta | Security baselines, AV, firewall, EDR, ASR |
-| Scripts | beta | PowerShell (Windows), shell (macOS) with full content and analysis |
+| Scripts | beta | PowerShell (Windows), shell (macOS), and macOS PKG app pre/post install scripts; full content and analysis when `-EmbedScripts` is used |
 | Proactive Remediations | beta | Device health scripts (custom only) |
 | Enrollment Configuration | v1.0 + beta | Restrictions, ESP, Autopilot, ADE/DEP, Android Enterprise |
 | Android Device Owner Enrollment | beta | Dedicated/fully managed enrollment profiles |
@@ -112,11 +125,12 @@ The script requests these Microsoft Graph scopes (all read-only):
 ## Parameters
 
 | Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
+| ----------- | ------ | --------- | ------------- |
 | `-OutputPath` | string | `./IntuneExport-<date>` | Directory for output files |
 | `-TenantId` | string | (interactive) | Tenant ID or domain to connect to |
+| `-EmbedScripts` | switch | Off | Embed full PowerShell and shell script content in the Markdown output |
 
-Setting values and script content are always exported for complete documentation.
+Setting values are always exported. Script bodies and generated script analysis are embedded only when `-EmbedScripts` is used.
 
 ## Error Handling
 
@@ -128,6 +142,7 @@ Setting values and script content are always exported for complete documentation
 ## Platform Classification
 
 Items are classified by explicit metadata, never by display name:
+
 - `@odata.type` for legacy profiles, compliance, and apps
 - `platforms` property for Settings Catalog
 - `platformType` for security baselines
@@ -137,7 +152,7 @@ Items are classified by explicit metadata, never by display name:
 ## Security Notes
 
 - All API calls are **read-only** — the script makes no changes to the tenant
-- Script content is always exported — review output before sharing if scripts may contain secrets
+- If you use `-EmbedScripts`, review output before sharing because embedded scripts may contain secrets
 - Group names are resolved for readability but no group membership data is exported
 
 ## Authentication Details
@@ -154,7 +169,7 @@ The script uses **interactive browser-based authentication** via Microsoft Graph
 You need to sign in with an account that has at least **read access** to Intune and Azure AD. Typically:
 
 | Role | Access Level |
-|------|--------------|
+| ------ | -------------- |
 | **Global Reader** | Full read-only access to all settings |
 | **Intune Administrator** | Full Intune access |
 | **Security Reader** | Read Conditional Access and security settings |
@@ -167,7 +182,7 @@ For complete documentation, use **Global Reader** or a custom role with all requ
 The Graph scopes requested are all **read-only** and may require admin consent depending on your tenant settings:
 
 | Scope | Why Needed |
-|-------|-----------|
+| ------- | ----------- |
 | `DeviceManagementConfiguration.Read.All` | Device configs, Settings Catalog, compliance, admin templates |
 | `DeviceManagementApps.Read.All` | Apps, MAM policies, app configurations |
 | `DeviceManagementManagedDevices.Read.All` | Scripts, remediations, enrollment profiles |

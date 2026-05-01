@@ -16,7 +16,7 @@ Users will be able to:
 ## Primary Users
 
 | User Type | Use Case |
-|-----------|----------|
+| ----------- | ---------- |
 | **IT Administrators** | Document and audit their Intune tenant configurations |
 | **MSPs / Consultants** | Generate client environment documentation for handoffs or reviews |
 | **Security / Compliance Teams** | Audit configurations against security baselines and policies |
@@ -26,7 +26,7 @@ Users will be able to:
 
 ### Input
 
-- PowerShell command line with optional `-TenantId` and `-OutputPath` parameters
+- PowerShell command line with optional `-TenantId`, `-OutputPath`, and `-EmbedScripts` parameters
 - Interactive browser-based authentication to Microsoft Graph
 
 ### Actions
@@ -36,6 +36,7 @@ Users will be able to:
   - Device configuration profiles (legacy + Settings Catalog + Admin Templates)
   - Compliance policies and custom compliance scripts
   - App protection (MAM), app configuration, and managed apps
+  - macOS PKG app pre-install and post-install scripts
   - Endpoint security baselines
   - Scripts (PowerShell, shell) and proactive remediations
   - Enrollment configurations (Autopilot, ADE/DEP, Android Enterprise)
@@ -46,11 +47,12 @@ Users will be able to:
   - Branding, terms and conditions, notification templates
 - Classify items by platform automatically using metadata
 - Resolve group names for human-readable assignment documentation
+- Optionally embed script bodies and script analysis in Markdown output
 
 ### Output
 
 | File | Description |
-|------|-------------|
+| ------ | ------------- |
 | `Windows.md` | All Windows-specific configurations |
 | `macOS.md` | All macOS-specific configurations |
 | `iOS.md` | All iOS/iPadOS-specific configurations |
@@ -62,7 +64,7 @@ Users will be able to:
 ## Out of Scope (MVP)
 
 | Capability | Reason |
-|------------|--------|
+| ------------ | -------- |
 | Write operations | Script is intentionally read-only for safety |
 | Device inventory / compliance status | Documents configuration, not device state |
 | Historical change tracking | Point-in-time snapshot only |
@@ -75,7 +77,7 @@ Users will be able to:
 ## Success Metrics
 
 | Metric | Target |
-|--------|--------|
+| -------- | -------- |
 | Complete export without manual intervention | 100% of accessible sections |
 | Tenant modifications | Zero (read-only) |
 | Execution time | < 5 minutes for typical tenants |
@@ -101,18 +103,18 @@ Users will be able to:
 ### Security
 
 | Aspect | Implementation |
-|--------|----------------|
+| -------- | ---------------- |
 | API Access | Read-only — all scopes are `.Read.All` |
 | Authentication | Interactive browser login (delegated permissions) |
 | Authorization | Requires Azure AD roles with Intune read access (e.g., Global Reader) |
 | Credential Storage | None — session disconnects on completion |
-| Sensitive Data | Script content is exported; users should review before sharing |
+| Sensitive Data | Script content can be embedded with `-EmbedScripts`; users should review output before sharing |
 | Tenant Impact | Zero modifications possible |
 
 ### Telemetry
 
 | Type | Implementation |
-|------|----------------|
+| ------ | ---------------- |
 | External telemetry | None — script runs locally |
 | Console output | Real-time progress and warnings |
 | Error logging | `_warnings.md` captures permission/API errors |
@@ -123,7 +125,7 @@ Users will be able to:
 All permissions are **read-only** and may require admin consent:
 
 | Scope | Purpose |
-|-------|---------|
+| ------- | --------- |
 | `DeviceManagementConfiguration.Read.All` | Device configs, Settings Catalog, compliance, admin templates |
 | `DeviceManagementApps.Read.All` | Apps, MAM policies, app configurations |
 | `DeviceManagementManagedDevices.Read.All` | Scripts, remediations, enrollment profiles |
@@ -136,6 +138,6 @@ All permissions are **read-only** and may require admin consent:
 ## Demo URL and/or Repo URLs
 
 | Type | URL |
-|------|-----|
+| ------ | ----- |
 | **Published Demo URL** | N/A (PowerShell script, not a web app) |
 | **Published GitHub URL** | *Add your repo URL here* |
